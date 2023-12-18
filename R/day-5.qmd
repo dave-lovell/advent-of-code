@@ -1,0 +1,228 @@
+---
+title: "Day 5"
+author: "Dave"
+format: html
+editor: visual
+---
+
+## Libraries
+
+```{r libs}
+library(conflicted)
+library(purrr)
+library(stringr)
+library(dplyr)
+conflicted::conflicts_prefer(dplyr::lag)
+conflicted::conflicts_prefer(dplyr::filter)
+library(forcats)
+library(here)
+```
+
+## Read data
+
+```{r read_data}
+maps <- readLines(here("inputs", "seed-maps.txt"))
+```
+
+## Format data
+
+```{r format_data}
+seeds <- maps[1]
+
+maps <- maps[-1]
+
+blanks <- maps == ""
+
+maps_list <- as.list(maps[which(blanks) + 1])
+
+names(maps_list) <- maps_list
+
+maps_list
+
+maps_list <- 
+  map(maps_list,
+      \(x){
+        name_index <- which(maps == x)
+        next_blank <- min(which(blanks)[which(blanks) > name_index])
+        # browser()
+        start <- name_index+1
+        end <- min(next_blank - 1, length(maps))
+        maps[start:end]
+      })
+
+maps <- maps_list
+rm(maps_list)
+
+names(maps) <- str_remove(names(maps), " map:")
+
+maps <-
+  map(maps,
+      \(x){
+        nums <- 
+          str_split_fixed(x, " ", n = 3) |> 
+          as.numeric()
+        
+        dim(nums) <- c(length(nums)/3 , 3)
+        
+        colnames(nums) <- c("destination_range_start",
+                            "source_range_start", 
+                            "range_length")
+        
+        as_tibble(nums)
+      })
+
+maps <- 
+  imap(maps,
+       \(tibble, list_name){
+         mutate(tibble, map_type = list_name)
+       })
+
+maps <- bind_rows(maps)
+
+maps <-
+  relocate(maps, map_type) |> 
+  mutate(map_type =
+           ordered(map_type) |> 
+           fct_inorder())
+  
+
+maps <- arrange(maps, map_type, source_range_start)
+```
+
+## Part 1: Find lowest location number
+
+### Create ranges and functions
+
+```{r create_ranges_and_functions}
+maps <- 
+  mutate(maps, 
+         source_range_end = source_range_start + range_length - 1) |> 
+  relocate(source_range_end, .after = source_range_start)
+
+maps <- 
+  group_by(maps, map_type) |> 
+  mutate(last_range_ended = lag(source_range_end, default = -1),
+         no_gap = source_range_start >= last_range_ended + 1)
+
+head(maps)
+
+summarise(maps,
+          any_gaps = any(!no_gap),
+          starts_zero = min(source_range_start) == 0)
+```
+
+Okay, there are no gaps in the source ranges and they all start at zero. So every value from zero to the maximum is explicitly defined in the source ranges. That means the stuff about 'lookup numbers that aren't mapped' is a bit of a red herring.
+
+```{r drop_no_gaps}
+maps <- select(maps, -no_gap, -last_range_ended)
+maps <- ungroup(maps)
+```
+
+### Make lookup function
+
+```{r lookup_function}
+
+lookup <- function(source, source_range_start, destination_range_start){
+  source + (destination_range_start - source_range_start)
+}
+```
+
+### Try it out
+
+```{r try_it_out}
+seeds <- 
+  str_remove(seeds, "seeds: ") |> 
+  str_split_1(" ") |> 
+  as.numeric()
+
+test_seed <- seeds[1]
+
+test_tibble <- filter(maps, map_type == "seed-to-soil")
+
+filter(test_tibble,
+       source_range_start <= test_seed,
+       source_range_end >= test_seed) |> 
+  mutate(source = test_seed) |> 
+  select(source_range_start, destination_range_start, source) |> 
+  pmap_dbl(lookup)
+```
+
+Nice! Now we just need to split our tibble into a list and make a nesting function that can `reduce()` our seed to a soil or something.
+
+```{r nesting_function}
+
+get_next_source <- function(last_source, this_tibble){
+
+filtered_tibble <-
+  filter(this_tibble, source_range_start <= last_source,
+         source_range_end >= last_source)
+
+if(nrow(filtered_tibble) == 0){
+  
+  out <- last_source
+  
+} else {
+  
+  out <-
+    mutate(filtered_tibble, 
+           source = last_source) |> 
+    select(source_range_start, destination_range_start, source) |> 
+    pmap_dbl(lookup)
+  
+}
+
+# cat(out, "\n")
+
+out
+
+}
+
+get_next_source(test_seed, test_tibble)
+
+maps <- group_by(maps, map_type)
+map_types <- group_keys(maps)
+maps <- group_split(maps)
+names(maps) <- map_types[["map_type"]]
+
+names(maps)
+
+reduce(maps, get_next_source, .init = test_seed)
+```
+
+Hooray! Now we can map our reducer to get all the location numbers and find the lowest location.
+
+```{r get_all_locations}
+locations <-
+  map_dbl(
+    seeds,
+    \(x){
+      reduce(maps, get_next_source, .init = x)
+    }
+  )
+
+locations
+
+min(locations)
+```
+
+## Part 2: Seeds are actually ranges
+
+This seems kind of trivial ngl
+
+```{r make_seed_ranges}
+seeds
+```
+
+Oh no maybe not.
+
+```{r get_ranges}
+odd <- (1:length(seeds)) %% 2 == 1
+seed_starts <- seeds[odd]
+seed_ends   <- seeds[!odd]
+
+seeds <- tibble(seed_starts, seed_ends)
+
+seeds <- mutate(seeds, seeds_in_range = abs(seed_starts - seed_ends))
+```
+
+Hmmm...

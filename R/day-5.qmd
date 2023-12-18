@@ -16,6 +16,7 @@ conflicted::conflicts_prefer(dplyr::lag)
 conflicted::conflicts_prefer(dplyr::filter)
 library(forcats)
 library(here)
+library(tidyr)
 ```
 
 ## Read data
@@ -226,3 +227,104 @@ seeds <- mutate(seeds, seeds_in_range = abs(seed_starts - seed_ends))
 ```
 
 Hmmm...
+
+Okay, the mapping is linear, which means that for a given source range the lowest input value will return the lowest output value. But higher source values could still yield lower destinations depending on how each range is mapped.
+
+So, for each seed range, find the ranges of destination values that could be returned.
+
+```{r find_ranges}
+seeds <- mutate(seeds, 
+                seed_starts_2 = pmin(seed_starts, seed_ends),
+                seed_ends = pmax(seed_starts, seed_ends),
+                seed_starts = seed_starts_2) |> 
+  select(-seed_starts_2) |> 
+  arrange(seed_starts) |> 
+  mutate(seed_batch = row_number())
+
+seeds <- mutate(seeds,
+                overlaps = lag(seed_ends) > seed_starts)
+
+seeds
+```
+
+Okay so it looks like there is actually only one continual range of seeds? The end of every range is larger than the beginning of the range with the next-highest start point. 
+
+```{r seed_range}
+seed_range <- c(min(seeds[["seed_starts"]]), max(seeds[["seed_ends"]]))
+seed_range
+```
+
+And now we can drop all the rows of the tibble that fall outwith that range:
+
+```{r drop_tibble_rows_outwith_range}
+
+viable_source_ranges <- 
+  test_tibble |> 
+  filter(!(source_range_start > seed_range[2] | 
+             source_range_end < seed_range[1])) 
+
+impossible_soils <- 
+  test_tibble |> 
+  filter(source_range_start > seed_range[2] | 
+             source_range_end < seed_range[1])
+
+impossible_soils
+
+```
+
+```{r idk}
+start <- seeds[["seed_starts"]][1]
+end   <- seeds[["seed_ends"]][1]
+
+ends <- c(start, end)
+ends <- sort(ends)
+names(ends) <- c("start", "end")
+
+viable_source_ranges <- 
+  test_tibble |> 
+  filter(!(source_range_start > ends[["end"]] | 
+             source_range_end < ends[["start"]])) |> 
+  mutate(min_source = pmax(ends[["start"]], source_range_start),
+         max_source = pmin(ends[["end"]], source_range_end)) 
+
+min_destinations <-
+  select(viable_source_ranges, 
+         source_range_start, destination_range_start, 
+         source = min_source) |> 
+  pmap_dbl(lookup)
+
+max_destinations <- 
+  select(viable_source_ranges, 
+         source_range_start, destination_range_start, 
+         source = max_source) |> 
+  pmap_dbl(lookup)
+
+destinations <-
+  cbind(min_destination = min_destinations, max_destination = max_destinations) |> 
+  as_tibble() |> 
+  arrange(min_destination)
+
+destinations <- 
+  mutate(
+    destinations, 
+    gap = lag(max_destination) == min_destination - 1,
+    gap = replace_na(gap, TRUE),
+    gapless_group = consecutive_id(gap)
+  )
+
+destinations <- 
+  summarise(
+    destinations,
+    destination_range_start = min(min_destination),
+    destination_range_end = max(max_destination), 
+    .by = gapless_group
+  )
+
+destinations
+```
+
+So that's every possible range of soils for the first range of seeds. We need to somehow map this across all seeds and then reduce again between steps to stop it sprawling out of control.
+
+Perhaps we could just find the rows of the soils tibble that don't intersect the seeds tibble?
+
+We could also simplify the ranges of seeds if we play it smart.

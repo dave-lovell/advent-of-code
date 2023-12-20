@@ -221,9 +221,9 @@ odd <- (1:length(seeds)) %% 2 == 1
 seed_starts <- seeds[odd]
 seed_ends   <- seeds[!odd]
 
-seeds <- tibble(seed_starts, seed_ends)
+seeds <- tibble(seed_starts, n_seeds)
 
-seeds <- mutate(seeds, seeds_in_range = abs(seed_starts - seed_ends))
+seeds <- mutate(seeds, seed_ends = seed_starts + n_seeds)
 ```
 
 Hmmm...
@@ -247,7 +247,7 @@ seeds <- mutate(seeds,
 seeds
 ```
 
-Okay so it looks like there is actually only one continual range of seeds? The end of every range is larger than the beginning of the range with the next-highest start point. 
+Okay so it looks like there is actually only one continual range of seeds? The end of every range is larger than the beginning of the range with the next-highest start point.
 
 ```{r seed_range}
 seed_range <- c(min(seeds[["seed_starts"]]), max(seeds[["seed_ends"]]))
@@ -298,7 +298,8 @@ destinations <-
   ) |> 
   select(-gapless_group)
 
-get_destinations <- function(destination_range_start, destination_range_end, map_tibble){
+get_destinations <-
+  function(destination_range_start, destination_range_end, map_tibble){
   
         drs <- destination_range_start
         dre <- destination_range_end
@@ -312,6 +313,37 @@ get_destinations <- function(destination_range_start, destination_range_end, map
            
            mutate(min_source = pmax(drs, source_range_start),
                   max_source = pmin(dre, source_range_end))
+         
+         if(nrow(viable_source_ranges != 0) &&
+            is.na(max(viable_source_ranges$min_source))){
+           foo <<- viable_source_ranges
+         }
+         
+         if(nrow(viable_source_ranges) == 0 ||
+            dre > max(viable_source_ranges$max_source)){
+           
+           new_min <- max(viable_source_ranges$min_source) + 1
+           
+           viable_source_ranges <- 
+             add_row(viable_source_ranges,
+                     source_range_start = new_min,
+                     destination_range_start = new_min,
+                     min_source = new_min,
+                     max_source = dre)
+         }
+        
+         if(nrow(viable_source_ranges) == 0 ||
+            drs < min(viable_source_ranges$min_source)){
+           
+           new_max <- min(viable_source_ranges$min_source) - 1
+           
+           viable_source_ranges <- 
+             add_row(viable_source_ranges,
+                     source_range_start = drs,
+                     destination_range_start = drs,
+                     min_source = drs,
+                     max_source = new_min)
+         }
          
          min_destinations <-
            select(viable_source_ranges,

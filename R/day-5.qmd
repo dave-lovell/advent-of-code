@@ -226,211 +226,67 @@ seeds <- tibble(seed_starts, n_seeds)
 seeds <- mutate(seeds, seed_ends = seed_starts + n_seeds)
 ```
 
-Hmmm...
+### Implement better approach
 
-Okay, the mapping is linear, which means that for a given source range the lowest input value will return the lowest output value. But higher source values could still yield lower destinations depending on how each range is mapped.
+```{r implement_better_approach}
+maps <- reduce(maps, rbind)
 
-So, for each seed range, find the ranges of destination values that could be returned.
+maps <- rename(maps, 
+               source_start = source_range_start, 
+               source_end = source_range_end, 
+               destination_start = destination_range_start) |> 
+  select(-range_length) |> 
+  mutate(destination_end = destination_start + (source_end - source_start),
+         add = destination_start - source_start) |> 
+  relocate(map_type, source_start, source_end, destination_start, destination_end, add)
 
-```{r find_ranges}
-seeds <- mutate(seeds, 
-                seed_starts_2 = pmin(seed_starts, seed_ends),
-                seed_ends = pmax(seed_starts, seed_ends),
-                seed_starts = seed_starts_2) |> 
-  select(-seed_starts_2) |> 
-  arrange(seed_starts) |> 
-  mutate(seed_batch = row_number())
+maps <- arrange(maps, map_type, destination_start)
 
-seeds <- mutate(seeds,
-                overlaps = lag(seed_ends) > seed_starts)
+head(maps)
 
-seeds
 
-```
-
-Okay so it looks like there is actually only one continual range of seeds? The end of every range is larger than the beginning of the range with the next-highest start point.
-
-```{r seed_range}
-seed_range <- c(min(seeds[["seed_starts"]]), max(seeds[["seed_ends"]]))
-seed_range
-```
-
-And now we can drop all the rows of the tibble that fall outwith that range:
-
-```{r drop_tibble_rows_outwith_range}
-viable_source_ranges <- 
-  test_tibble |> 
-  filter(!(source_range_start > seed_range[2] | 
-             source_range_end < seed_range[1])) |> 
-  mutate(min_source = pmax(seed_range[1], source_range_start),
-         max_source = pmin(seed_range[2], source_range_end))
-
-min_destinations <-
-  select(viable_source_ranges, 
-         source_range_start, destination_range_start, 
-         source = min_source) |> 
-  pmap_dbl(lookup)
-
-max_destinations <- 
-  select(viable_source_ranges, 
-         source_range_start, destination_range_start, 
-         source = max_source) |> 
-  pmap_dbl(lookup)
-
-destinations <-
-  cbind(min_destination = min_destinations, max_destination = max_destinations) |> 
-  as_tibble() |> 
-  arrange(min_destination)
-
-destinations <- 
-  mutate(
-    destinations, 
-    gap = lag(max_destination) == min_destination - 1,
-    gap = replace_na(gap, TRUE),
-    gapless_group = consecutive_id(gap)
-  )
-
-destinations <- 
-  summarise(
-    destinations,
-    destination_range_start = min(min_destination),
-    destination_range_end = max(max_destination), 
-    .by = gapless_group
-  ) |> 
-  select(-gapless_group)
-
-get_destinations <-
-  function(destination_range_start, destination_range_end, map_tibble){
+gaps <- 
+  group_by(maps, map_type) |>
   
-        drs <- destination_range_start
-        dre <- destination_range_end
-         
-         viable_source_ranges <-
-           
-           map_tibble |>
-           
-           filter(!(source_range_start > drs |
-                      source_range_end < dre)) |>
-           
-           mutate(min_source = pmax(drs, source_range_start),
-                  max_source = pmin(dre, source_range_end))
-         
-         if(nrow(viable_source_ranges != 0) &&
-            is.na(max(viable_source_ranges$min_source))){
-           foo <<- viable_source_ranges
-         }
-         
-         if(nrow(viable_source_ranges) == 0 ||
-            dre > max(viable_source_ranges$max_source)){
-           
-           new_min <- max(viable_source_ranges$min_source) + 1
-           
-           viable_source_ranges <- 
-             add_row(viable_source_ranges,
-                     source_range_start = new_min,
-                     destination_range_start = new_min,
-                     min_source = new_min,
-                     max_source = dre)
-         }
-        
-         if(nrow(viable_source_ranges) == 0 ||
-            drs < min(viable_source_ranges$min_source)){
-           
-           new_max <- min(viable_source_ranges$min_source) - 1
-           
-           viable_source_ranges <- 
-             add_row(viable_source_ranges,
-                     source_range_start = drs,
-                     destination_range_start = drs,
-                     min_source = drs,
-                     max_source = new_min)
-         }
-         
-         min_destinations <-
-           select(viable_source_ranges,
-                  source_range_start,
-                  destination_range_start,
-                  source = min_source) |>
-           pmap_dbl(lookup)
-         
-         max_destinations <-
-           select(viable_source_ranges,
-                  source_range_start,
-                  destination_range_start,
-                  source = max_source) |>
-           pmap_dbl(lookup)
-         
-         destinations <-
-           cbind(min_destination = min_destinations, max_destination = max_destinations) |>
-           as_tibble() |>
-           arrange(min_destination)
-         
-         destinations <-
-           mutate(
-             destinations,
-             gap = lag(max_destination) == min_destination - 1,
-             gap = replace_na(gap, TRUE),
-             gapless_group = consecutive_id(gap)
-           )
-         
-         destinations <-
-           summarise(
-             destinations,
-             destination_range_start = min(min_destination),
-             destination_range_end = max(max_destination),
-             .by = gapless_group
-           ) |> 
-           select(-gapless_group)
-         
-         destinations
-       }
+  mutate(last_dest_ended = lag(destination_end, default = -1),
+         no_gap = destination_start == last_dest_ended + 1) |> 
+  
+  filter(!no_gap)
 
-get_destination_ranges <- function(destinations, map_tibble){
-  pmap(destinations, get_destinations, map_tibble = map_tibble) |> 
-    bind_rows() |> 
-    distinct()
-}
-
-get_destination_ranges(destinations, maps[[2]])
-
-
-final_destinations <- reduce(maps[2:length(maps)], get_destination_ranges, .init = destinations)
-
-min(final_destinations[["destination_range_start"]])
+gaps
 ```
 
-```{r idk}
-# start <- seeds[["seed_starts"]][1]
-# end   <- seeds[["seed_ends"]][1]
-# 
-# ends <- c(start, end)
-# ends <- sort(ends)
-# names(ends) <- c("start", "end")
-# 
-# viable_source_ranges <- 
-#   test_tibble |> 
-#   filter(!(source_range_start > ends[["end"]] | 
-#              source_range_end < ends[["start"]])) |> 
-#   mutate(min_source = pmax(ends[["start"]], source_range_start),
-#          max_source = pmin(ends[["end"]], source_range_end)) 
-# 
+There's one 'gap' in the destination ranges in every group. Should we explicitly encode this?
 
-# 
-# destinations
+No - those are destinations that can't be accessed - there's not gap in the inputs, which is what we want to look out for. Since all inputs start at zero and have no gaps, the only thing we need to do is add a row that defines the range from the highest explicitly listed source value to infinity, and give this an `add` of one.
+
+```{r add_infinite_ends}
+maps <- group_by(maps, map_type)
+keys <- group_keys(maps)[["map_type"]]
+
+maps <- 
+  group_split(maps) |> 
+  set_names(keys)
+
+maps <- 
+  imap(maps, 
+       \(x, x_name){
+         
+         final_source <- max(x[["source_end"]])
+         plus_one <- final_source + 1
+         
+         add_row(x,
+                 map_type = x_name,
+                 source_start = plus_one,
+                 source_end = Inf,
+                 destination_start = plus_one,
+                 destination_end = Inf,
+                 add = 0) |> 
+           arrange(destination_start)
+       })
+
+maps[[1]] |>
+  tail(3)
+
 ```
-
-So that's every possible range of soils for the first range of seeds. We need to somehow map this across all seeds and then reduce again between steps to stop it sprawling out of control.
-
-Perhaps we could just find the rows of the soils tibble that don't intersect the seeds tibble?
-
-We could also simplify the ranges of seeds if we play it smart.
-
-We can go backwards, I think. Look at the lowest possible destination range in the last tibble, work backwards from there to get an exhaustive map to the seed-soil table.
-
-```{r go_backwards}
-spam <- rev(maps)
-
-spam <- map(spam, \(x) arrange(x, destination_range_start))
-```
-
-No I think we can just do a 'reduce()' type deal on the first code block I wrote. I'm thinking in circles.
+Neato.

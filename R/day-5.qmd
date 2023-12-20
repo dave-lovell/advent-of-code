@@ -290,3 +290,23 @@ maps[[1]] |>
 
 ```
 Neato.
+
+#### Recursively join tibbles by overlap
+
+```{r recursively_join_by_overlap}
+# overlaps <- function(x, y){
+#   stopifnot(is.numeric(x), is.numeric(y), length(x) == 2, length(y) == 2)
+#   
+#   x <- sort(x)
+#   y <- sort(y)
+#   
+#   !(x[[2]] < y[[1]] | y[[2]] < y[[1]])
+# }
+
+## Lol this function already exists as a join helper in dplyr::left_join. Encouraging.
+
+by <- join_by(overlaps(x$destination_start, x$destination_end, y$source_start, y$source_end))
+
+test <- left_join(maps[[1]], maps[[2]], by = by, 
+                  suffix = c(".source", ".destination"))
+```

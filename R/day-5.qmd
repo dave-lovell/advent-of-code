@@ -219,7 +219,7 @@ Oh no maybe not.
 ```{r get_ranges}
 odd <- (1:length(seeds)) %% 2 == 1
 seed_starts <- seeds[odd]
-seed_ends   <- seeds[!odd]
+n_seeds   <- seeds[!odd]
 
 seeds <- tibble(seed_starts, n_seeds)
 
@@ -245,6 +245,7 @@ seeds <- mutate(seeds,
                 overlaps = lag(seed_ends) > seed_starts)
 
 seeds
+
 ```
 
 Okay so it looks like there is actually only one continual range of seeds? The end of every range is larger than the beginning of the range with the next-highest start point.

@@ -1,0 +1,84 @@
+---
+title: "Calibration document reading"
+author: "Dave"
+format: html
+editor: visual
+---
+
+## Libraries
+
+```{r libs}
+library(here)
+library(stringr)
+library(dplyr)
+library(purrr)
+```
+
+## Read calibration document
+
+```{r read_document}
+calibration <- readLines(here("inputs", "newly-improved-calibration-document.txt"))
+```
+
+### Part 1: Find first and last numbers
+
+```{r find_first_and_last_numbers}
+digits <- str_extract_all(calibration, "\\d")
+
+numbers <- map_dbl(digits, \(x) as.numeric(str_c(first(x), last(x))))
+
+cbind(calibration, numbers)[1:20,]
+
+sum(numbers)
+```
+
+## Part Two:
+
+```{r read_all_digits_etc}
+numbers_written <-
+  c("one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+
+num_regex <- str_c(c(numbers_written, "\\d"), collapse = "|")
+
+firsts <- str_extract(calibration, num_regex)
+
+str_reverse <- function(x){
+  chr_list <- str_split(x, boundary("character"))
+  
+  map_chr(chr_list, \(y) str_c(rev(y), collapse = ""))
+}
+
+str_reverse("hello")
+ 
+nettirw_srebmun <- str_reverse(numbers_written)
+
+xeger_mun <- str_c(c(nettirw_srebmun, "\\d"), collapse = "|")
+xeger_mun
+
+noitarbilac <- str_reverse(calibration)
+
+lasts <-
+  str_extract(noitarbilac, xeger_mun) |> 
+  str_reverse()
+
+make_number <- function(x){
+
+  is_num <- str_detect(x, "\\d+")#
+  
+  out <- x
+  out[!is_num] <- match(out[!is_num], numbers_written)
+  out
+}
+
+firsts[1:10]
+make_number(firsts[1:10])
+
+firsts <- make_number(firsts)
+lasts <-  make_number(lasts)
+
+correct_numbers <- 
+  str_c(firsts, lasts) |> 
+  as.numeric()
+
+sum(correct_numbers)
+```

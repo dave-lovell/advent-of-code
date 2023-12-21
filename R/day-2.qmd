@@ -1,0 +1,104 @@
+---
+title: "Day 2"
+author: "Dave"
+format: html
+editor: visual
+---
+
+## Libraries
+
+```{r libs}
+library(vroom)
+library(fs)
+library(here)
+library(dplyr)
+library(tidyr)
+library(stringr)
+```
+
+## Read data
+
+```{r read_data}
+games <- 
+  vroom(here("inputs", "bag-counts.txt"), delim = ":",
+      col_names = c("game", "draws"),
+      col_types = "cc")
+```
+
+## Clean data
+
+```{r clean_data}
+games <- mutate(games,
+                game =
+                  str_remove(game, "Game ") |> 
+                  as.numeric())
+```
+
+### Lengthen, separate and widen
+
+```{r lengthen}
+games <-
+  separate_longer_delim(games, draws, ";") |> 
+  mutate(draws = str_trim(draws))
+
+games <-
+  mutate(games, draw = row_number(), .by = game) |> 
+  separate_longer_delim(draws, ",") |> 
+  mutate(draws = str_trim(draws))
+
+games <-
+  separate_wider_delim(games, draws, " ", names = c("count", "colour")) |> 
+  mutate(count = as.numeric(count), colour = factor(colour))
+
+games <-
+  complete(games, game, colour, draw, fill = list(count = 0))
+
+games <- pivot_wider(games, names_from = colour, values_from = count)
+```
+
+### find possible games
+
+\|\>
+
+```{r find_possible}
+red_cubes <- 12
+green_cubes <- 13
+blue_cubes <- 14
+
+games <- 
+  mutate(
+    games,
+    red_impossible  = any(red > red_cubes),
+    green_impossible = any(green > green_cubes),
+    blue_impossible = any(blue > blue_cubes),
+    .by = game
+  )
+
+head(games, 20)
+
+id_sums_possible_games <- 
+games |>
+  filter(!(red_impossible | green_impossible | blue_impossible)) |> 
+  pull(game) |> 
+  unique() |> 
+  sum()
+
+id_sums_possible_games
+```
+
+## Part 2
+
+Find the minimum cubes for a game to be possible
+
+```{r find_minimum_possible_cubes}
+
+games <- select(games, -ends_with("_impossible"))
+
+games <- 
+  summarise(games, across(c(blue, green, red),max), .by = game) |> 
+  mutate(products = blue * green * red)
+
+head(games)
+
+sum(games[["products"]])
+```

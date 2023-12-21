@@ -1,0 +1,98 @@
+---
+title: "Day 4"
+author: "Dave"
+format: html
+editor: visual
+---
+
+## Libraries
+
+```{r libs}
+library(vroom)
+library(here)
+library(dplyr)
+library(tidyr)
+library(stringr)
+```
+
+## Read data
+
+```{r read_data}
+scratch <- vroom(here("inputs", "scratchcards.txt"),
+                 col_types = "cc", col_names = c("winning", "have"))
+```
+
+## Clean data
+
+```{r clean_data}
+scratch <- separate_wider_delim(scratch, winning, delim = ":", 
+                                names = c("card", "winning"))
+
+scratch <- mutate(scratch,
+                  card =
+                    str_extract(card, "\\d+") |> 
+                    as.numeric(),
+                  winning = str_squish(winning),
+                  have    = str_squish(have))
+
+scratch <- 
+  separate_longer_delim(scratch, have, delim = " ") |> 
+  mutate(have = as.numeric(have))
+
+head(scratch)
+
+scratch <- 
+  rowwise(scratch) |> 
+  mutate(
+    winning = str_split_fixed(winning , " ", 10) |> 
+      as.numeric() |> 
+      list()
+  ) |> 
+  ungroup()
+```
+
+### Task 1: How many points?
+
+```{r how_many_points}
+scratch <- 
+  scratch |> 
+  rowwise() |> 
+  mutate(wins = have %in% winning) |> 
+  group_by(card) |> 
+  summarise(winners = sum(wins), .groups = "drop") |> 
+  mutate(points = (winners > 0) * 2^(winners - 1))
+
+total_points <- sum(scratch[["points"]])
+total_points
+```
+
+## Task 2: Every card wins more cards
+
+```{r simplify}
+scratch <- select(scratch, card, winners)
+
+wins <- scratch[["winners"]]
+
+total <- 0 
+
+cards <- rep(1, length(wins))
+
+for(card in seq_along(wins)){
+  
+  n_wins <- wins[card]
+  n_cards <- cards[card]
+  
+  if(n_wins > 0){
+    affected <- (card+1):(card+n_wins)
+    
+    new_cards <- cards
+    new_cards[affected] <-
+      new_cards[affected] + n_cards
+    cards <<- new_cards
+  }
+  
+  total <<- total + n_wins
+}
+
+sum(cards)
+```

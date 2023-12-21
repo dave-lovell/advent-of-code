@@ -1,0 +1,191 @@
+---
+title: "Day 3"
+format: html
+editor: visual
+---
+
+## Libraries
+
+```{r libs}
+library(here)
+library(fs)
+
+library(purrr)
+library(stringr)
+library(dplyr)
+```
+
+## Read Engine Schematic
+
+```{r read_schematic}
+schematic <- readLines(here("inputs", "engine-schematic.txt"))
+
+nchar(schematic) |> 
+  unique()
+
+length(schematic)
+
+schematic <- str_split(schematic, pattern = boundary("character"))
+schematic <- reduce(schematic, c)
+dim(schematic) <- c(140, 140)
+
+schematic[1:15, 1:15]
+```
+
+## Part 1: Sum part numbers
+
+### Copy and clean data
+
+working\[working == "."\] \<- NA
+
+```{r working_copy}
+working <- schematic
+
+working[working == "."] <- ""
+```
+
+### Create logical matrices
+
+```{r create_logical_matrices}
+
+symbols <- str_detect(working, "\\D")
+digits <-  str_detect(working, "\\d")
+
+any(symbols & digits)
+
+```
+
+### Find borders of all symbols
+
+Because we know the schematic is 140 \times 140, we use `lag()` and `lead()` (the `dplyr` functions) to get the values of all the adjacent (even diagonally) values. If a something is a symbol or something is adjacent to a symbol, then it's a symbol border.
+
+```{r find_borders}
+
+symbols <- as.vector(symbols)
+
+symbol_borders <- 
+symbols | 
+  lag(symbols, 1, default = FALSE)    |  # 1 shift left is TRUE
+  lead(symbols, 1, default = FALSE)   |  # 1 shift right is TRUE,
+  lag(symbols, 140, default = FALSE)  |  # row above is TRUE
+  lead(symbols, 140, default = FALSE) |  # row below is TRUE
+  lag(symbols, 141, default = FALSE)  |  # diagonals
+  lag(symbols, 139, default = FALSE)  |
+  lead(symbols, 141, default = FALSE) |
+  lead(symbols, 139, default = FALSE)
+
+dim(symbol_borders) <- c(140, 140)
+
+symbol_borders[1:20, 1:20]
+  
+```
+
+### Find digits that border symbols
+
+```{r bordering_digits}
+bordering_digits <- digits & symbol_borders
+
+sum(bordering_digits)
+```
+Hmmm. We need to find the actual numbers that border symbols, not just the digits. This is made more complicated by the fact that some of the digits will be from the same numbers as one another. 
+
+```{r number_numbers}
+digit_vector <- as.vector(digits)
+
+digit_border <- digit_vector != lag(digit_vector, 1, default = TRUE)
+
+digit_starts <- digit_vector & digit_border
+
+digit_number <- cumsum(digit_starts)
+digit_number[!digit_vector] <- 0
+
+
+digit_number[1:20]
+
+which_border <- 
+  digit_number[bordering_digits] |> 
+  unique()
+
+non_bordering <- setdiff(1:max(which_border), which_border)
+
+non_bordering
+
+which(digit_number == 1)
+
+schematic[1:10, 1:10]
+
+part_numbers <- 
+  map_dbl(which_border, 
+    \(x){
+      nums <- schematic[digit_number == x]
+      value <- as.numeric(paste(nums, collapse = ""))
+      value
+    })
+
+sum(part_numbers)
+```
+
+## Part 2: Find all gear ratios
+
+```{r find_all_gear_ratios}
+gears <- working == "*"
+gears <- as.vector(gears)
+
+gear_borders <- 
+gears | 
+  lag(gears, 1, default = FALSE)    |  # 1 shift left is TRUE
+  lead(gears, 1, default = FALSE)   |  # 1 shift right is TRUE,
+  lag(gears, 140, default = FALSE)  |  # row above is TRUE
+  lead(gears, 140, default = FALSE) |  # row below is TRUE
+  lag(gears, 141, default = FALSE)  |  # diagonals
+  lag(gears, 139, default = FALSE)  |
+  lead(gears, 141, default = FALSE) |
+  lead(gears, 139, default = FALSE)
+
+gear_vector <- as.vector(gears)
+
+gear_number <- cumsum(gear_vector)
+gear_number[!gear_vector] <- 0
+
+gear_indeces <- match(1:max(gear_number), gear_number)
+
+working[gear_indeces[1]]
+working[gear_indeces[312]]
+
+geared_number_ranks <-
+  lapply(gear_indeces,
+         \(x){
+           geared <- digit_number[c((x-1):(x+1), (x+139):(x+141), (x-139):(x-141))]
+           unique(geared[geared != 0])
+         })
+
+lengths(geared_number_ranks) |> 
+  table()
+
+valid_gears <- lengths(geared_number_ranks) == 2
+
+a_bad_gear <- gear_indeces[!valid_gears][1]
+
+x <- a_bad_gear
+bad_eg <- schematic[c((x-139):(x-141), (x-1):(x+1), (x+139):(x+141))]
+dim(bad_eg) <- c(3,3)
+t(bad_eg)
+
+gear_indeces <- gear_indeces[valid_gears]
+geared_number_ranks <- geared_number_ranks [valid_gears]
+
+map(geared_number_ranks,
+    \(x){
+      
+      nums <- map_dbl(x, \(y){
+        geared_nums <- schematic[digit_number == y]
+        value <- as.numeric(paste(geared_nums, collapse = ""))
+        value
+      })
+      
+      nums[[1]] * nums[[2]]
+      
+      }) |> 
+  reduce(sum)
+
+```

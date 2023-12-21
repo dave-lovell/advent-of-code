@@ -260,6 +260,28 @@ There's one 'gap' in the destination ranges in every group. Should we explicitly
 
 No - those are destinations that can't be accessed - there's not gap in the inputs, which is what we want to look out for. Since all inputs start at zero and have no gaps, the only thing we need to do is add a row that defines the range from the highest explicitly listed source value to infinity, and give this an `add` of one.
 
+### Make 'seed to seed' for simplicity
+
+```{r seed_to_seed}
+seeds
+
+seeds <- transmute(seeds,
+                map_type = "seed-to-seed",
+                source_start = seed_starts,
+                source_end = seed_ends,
+                destination_start = source_start,
+                destination_end = source_end,
+                add = 0)
+
+max_seeds <- max(seeds[["source_end"]])
+
+maps <- 
+  mutate(maps, 
+         map_type = fct_expand(map_type, "seed-to-seed", after = 0)) |> 
+  rbind(seeds) |> 
+  arrange(map_type, destination_start)
+```
+
 ```{r add_infinite_ends}
 maps <- group_by(maps, map_type)
 keys <- group_keys(maps)[["map_type"]]
@@ -289,6 +311,7 @@ maps[[1]] |>
   tail(3)
 
 ```
+
 Neato.
 
 #### Recursively join tibbles by overlap
@@ -309,4 +332,82 @@ by <- join_by(overlaps(x$destination_start, x$destination_end, y$source_start, y
 
 test <- left_join(maps[[1]], maps[[2]], by = by, 
                   suffix = c(".source", ".destination"))
+
+head(test)
+```
+
+### Another helper
+
+```{r intersection_helpers}
+# intersection_starts <- function(x1, x2, y1, y2){
+#   pmax(x1, y1)
+# }
+# 
+# intersection_ends <- function(x1, x2, y1, y2){
+#   pmax(x2, y2)
+# }
+
+
+```
+
+Okay we don't need a helper - the intersection begins at the highest of the start points and ends at the lowest of the end points:
+
+```{r make_intersections}
+foo <- 
+  transmute(
+    test,
+    source_start = 
+      pmax(destination_start.source, source_start.destination),
+    source_end =
+      pmin(destination_end.source, source_end.destination),
+    
+    add = add.source + add.destination,
+    
+    destination_start = source_start + add,
+    destination_end   = source_end + add
+  )
+```
+
+### Wrap in function
+
+```{r wrap_in_function}
+
+condense_map <- function(x,y){
+  
+  by <-
+    join_by(
+      overlaps(x$destination_start, x$destination_end,
+               y$source_start, y$source_end)
+      )
+  
+  new <- left_join(x, y, by = by, suffix = c(".source", ".destination"))
+  
+  transmute(
+    new,
+    
+    source_start = 
+      pmax(source_start.source, source_start.destination - add.source),
+    
+    source_end =
+      pmin(source_end.source, source_end.destination - add.source),
+    
+    add = add.source + add.destination,
+
+    destination_start = source_start + add,
+    destination_end  = source_end + add
+  )
+}
+
+condense_map(maps$`seed-to-soil`, maps$`soil-to-fertilizer`)
+
+new_maps <- 
+  accumulate(maps, condense_map)
+
+names(new_maps) <- str_replace(names(maps), ".+-to", "seed-to")
+
+names(new_maps)
+
+new_maps[["seed-to-location"]] |> 
+  pull(destination_start) |> 
+  min(na.rm = TRUE)
 ```

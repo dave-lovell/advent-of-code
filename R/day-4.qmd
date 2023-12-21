@@ -65,3 +65,34 @@ scratch <-
 total_points <- sum(scratch[["points"]])
 total_points
 ```
+
+## Task 2: Every card wins more cards
+
+```{r simplify}
+scratch <- select(scratch, card, winners)
+
+wins <- scratch[["winners"]]
+
+total <- 0 
+
+cards <- rep(1, length(wins))
+
+for(card in seq_along(wins)){
+  
+  n_wins <- wins[card]
+  n_cards <- cards[card]
+  
+  if(n_wins > 0){
+    affected <- (card+1):(card+n_wins)
+    
+    new_cards <- cards
+    new_cards[affected] <-
+      new_cards[affected] + n_cards
+    cards <<- new_cards
+  }
+  
+  total <<- total + n_wins
+}
+
+sum(cards)
+```
